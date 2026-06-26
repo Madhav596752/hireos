@@ -1,29 +1,17 @@
 // src/modules/interviews/interviews.service.js
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import prisma from "../../config/db.js";
 
 // ── Mailer setup ───────────────────────────────────────────────────────────
-function getTransporter() {
-  // Supports any SMTP provider (Gmail, Outlook, Mailgun, etc.)
-  // Set SMTP_* vars in your .env
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST   || "smtp.gmail.com",
-    port:   Number(process.env.SMTP_PORT)  || 587,
-    secure: process.env.SMTP_SECURE === "true", // true for port 465
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Send interview invite to the candidate.
  * Fails gracefully — a mail error never breaks the interview creation.
  */
 async function sendInterviewInvite({ candidateEmail, candidateName, interview, recruiterName }) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn("[Mailer] SMTP_USER / SMTP_PASS not set — skipping email.");
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("[Mailer] RESEND_API_KEY not set — skipping email.");
     return;
   }
 
@@ -77,10 +65,9 @@ async function sendInterviewInvite({ candidateEmail, candidateName, interview, r
   `;
 
   try {
-    const transporter = getTransporter();
-    await transporter.sendMail({
-      from:    `"HireOS Recruitment" <${process.env.SMTP_USER}>`,
-      to:      `"${candidateName}" <${candidateEmail}>`,
+    await resend.emails.send({
+      from: "HireOS <onboarding@resend.dev>",
+      to: `${candidateName} <${candidateEmail}>`,
       subject: `Interview Invitation: ${interview.title}`,
       html,
     });
