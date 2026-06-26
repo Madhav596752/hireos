@@ -176,6 +176,7 @@ cd hireos-backend
 
 # Install dependencies
 npm install --legacy-peer-deps
+npm install nodemailer --legacy--peer-deps
 
 # Generate Prisma client
 npm run db:generate
