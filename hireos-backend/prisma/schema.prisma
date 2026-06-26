@@ -1,0 +1,159 @@
+// prisma/schema.prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum Role {
+  ADMIN
+  HR
+  RECRUITER
+}
+
+enum JobStatus {
+  OPEN
+  PAUSED
+  CLOSED
+  DRAFT
+}
+
+enum CandidateStage {
+  NEW
+  SCREENED
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+model User {
+  id          String    @id @default(uuid())
+  name        String
+  email       String    @unique
+  password    String
+  role        Role      @default(RECRUITER)
+  company     String?
+  avatarUrl   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  jobs        Job[]
+  screenings  Screening[]
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  scheduledInterviews Interview[]
+
+  @@map("users")
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  title       String
+  department  String
+  location    String
+  type        String    @default("Full-time")
+  status      JobStatus @default(DRAFT)
+  salary      String?
+  description String
+  requirements String[]
+  applicants  Int       @default(0)
+  posted      DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  candidates  Candidate[]
+  screenings  Screening[]
+
+  @@map("jobs")
+}
+
+model Candidate {
+  id          String         @id @default(uuid())
+  name        String
+  email       String
+  phone       String?
+  location    String?
+  avatarUrl   String?
+  stage       CandidateStage @default(NEW)
+  score       Int            @default(0)
+  skills      String[]
+  appliedFor  String
+  resumeUrl   String?
+  summary     String?
+  embedding   Unsupported("vector(768)")?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  jobId       String?
+  job         Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  screenings  Screening[]
+  interviews  Interview[]
+
+  @@map("candidates")
+}
+
+model Screening {
+  id            String   @id @default(uuid())
+  matchScore    Int
+  insights      Json     // Array of {label, score, note}
+  parsedData    Json     // Structured resume data
+  interviewQs   String[]
+  createdAt     DateTime @default(now())
+
+  candidateId   String
+  candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  jobId         String?
+  job           Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("screenings")
+}
+
+model Interview {
+  id          String   @id @default(uuid())
+  title       String
+  date        DateTime
+  duration    Int      @default(60) // minutes
+  type        String   @default("Video Call")
+  notes       String?
+  status      String   @default("scheduled") // scheduled | completed | cancelled
+  meetingUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  recruiterId String
+  recruiter   User      @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+
+  @@map("interviews")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  content   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  senderId    String
+  sender      User   @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  receiverId  String
+  receiver    User   @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
