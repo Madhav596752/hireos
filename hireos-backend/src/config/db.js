@@ -1,4 +1,3 @@
-// src/config/db.js
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient({
@@ -24,16 +23,15 @@ async function connectWithRetry(retries = 3) {
     }
   }
   console.error("❌ All DB connection attempts failed");
+  process.exit(1); // ← added: fatal error pe exit karo
 }
 
-connectWithRetry();
-
-// Neon ko har 4 minute mein ping karo taaki suspend na ho
+// Neon ko har 4 minute mein ping karo
 setInterval(async () => {
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (e) {
-    console.log("Keep-alive ping failed, reconnecting...");
+    console.log("⚠️ Keep-alive ping failed, reconnecting...");
     await connectWithRetry();
   }
 }, 4 * 60 * 1000);
@@ -43,4 +41,5 @@ process.on("beforeExit", async () => {
   await prisma.$disconnect();
 });
 
+export { connectWithRetry };
 export default prisma;
