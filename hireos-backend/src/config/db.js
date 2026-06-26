@@ -10,8 +10,6 @@ const prisma = new PrismaClient({
   },
 });
 
-// Neon free tier pe DB idle hone ke baad connection drop hoti hai
-// Ye function har query se pehle connection alive rakhta hai
 async function connectWithRetry(retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -21,7 +19,7 @@ async function connectWithRetry(retries = 3) {
     } catch (err) {
       console.error(`❌ DB connect attempt ${i + 1} failed:`, err.message);
       if (i < retries - 1) {
-        await new Promise((res) => setTimeout(res, 2000)); // 2s wait
+        await new Promise((res) => setTimeout(res, 2000));
       }
     }
   }
@@ -29,6 +27,16 @@ async function connectWithRetry(retries = 3) {
 }
 
 connectWithRetry();
+
+// Neon ko har 4 minute mein ping karo taaki suspend na ho
+setInterval(async () => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (e) {
+    console.log("Keep-alive ping failed, reconnecting...");
+    await connectWithRetry();
+  }
+}, 4 * 60 * 1000);
 
 // Graceful shutdown
 process.on("beforeExit", async () => {
