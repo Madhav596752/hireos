@@ -9,7 +9,7 @@ const prisma = new PrismaClient({
   },
 });
 
-async function connectWithRetry(retries = 3) {
+async function connectWithRetry(retries = 5) {
   for (let i = 0; i < retries; i++) {
     try {
       await prisma.$connect();
@@ -18,25 +18,31 @@ async function connectWithRetry(retries = 3) {
     } catch (err) {
       console.error(`❌ DB connect attempt ${i + 1} failed:`, err.message);
       if (i < retries - 1) {
-        await new Promise((res) => setTimeout(res, 2000));
+        await new Promise((res) => setTimeout(res, 3000));
       }
     }
   }
   console.error("❌ All DB connection attempts failed");
-  process.exit(1); // ← added: fatal error pe exit karo
+  process.exit(1);
 }
 
-// Neon ko har 4 minute mein ping karo
+// Keep-alive with reconnect
 setInterval(async () => {
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (e) {
-    console.log("⚠️ Keep-alive ping failed, reconnecting...");
-    await connectWithRetry();
+    console.log("⚠️ Keep-alive failed, reconnecting...");
+    try {
+      await prisma.$disconnect();
+      await new Promise(r => setTimeout(r, 1000));
+      await prisma.$connect();
+      console.log("✅ Reconnected");
+    } catch (err) {
+      console.error("❌ Reconnect failed:", err.message);
+    }
   }
 }, 4 * 60 * 1000);
 
-// Graceful shutdown
 process.on("beforeExit", async () => {
   await prisma.$disconnect();
 });
