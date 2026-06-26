@@ -21,7 +21,7 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://recruitement portal.netlify.app",
+    "https://recruitementportal.netlify.app",
     process.env.FRONTEND_URL,
   ].filter(Boolean),
   credentials: true,
