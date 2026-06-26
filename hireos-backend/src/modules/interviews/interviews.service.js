@@ -1,27 +1,10 @@
 // src/modules/interviews/interviews.service.js
-import nodemailer from "nodemailer";
 import prisma from "../../config/db.js";
 
-// ── Mailer setup ───────────────────────────────────────────────────────────
-function getTransporter() {
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST   || "smtp-relay.brevo.com",
-    port:   Number(process.env.SMTP_PORT)  || 587,
-    secure: false, // Brevo port 587 pe always false
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
-
-/**
- * Send interview invite to the candidate.
- * Fails gracefully — a mail error never breaks the interview creation.
- */
+// ── Mailer ─────────────────────────────────────────────────────────────────
 async function sendInterviewInvite({ candidateEmail, candidateName, interview, recruiterName }) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn("[Mailer] SMTP_USER / SMTP_PASS not set — skipping email.");
+  if (!process.env.BREVO_API_KEY) {
+    console.warn("[Mailer] BREVO_API_KEY not set — skipping email.");
     return;
   }
 
@@ -75,13 +58,24 @@ async function sendInterviewInvite({ candidateEmail, candidateName, interview, r
   `;
 
   try {
-    const transporter = getTransporter();
-    await transporter.sendMail({
-      from:    `"HireOS Recruitment" <${process.env.SMTP_USER}>`,
-      to:      `"${candidateName}" <${candidateEmail}>`,
-      subject: `Interview Invitation: ${interview.title}`,
-      html,
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": process.env.BREVO_API_KEY,
+      },
+      body: JSON.stringify({
+        sender: { name: "HireOS Recruitment", email: process.env.BREVO_SENDER_EMAIL },
+        to: [{ email: candidateEmail, name: candidateName }],
+        subject: `Interview Invitation: ${interview.title}`,
+        htmlContent: html,
+      }),
     });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(JSON.stringify(err));
+    }
     console.log(`[Mailer] Interview invite sent to ${candidateEmail}`);
   } catch (err) {
     console.error("[Mailer] Failed to send interview invite:", err.message);
