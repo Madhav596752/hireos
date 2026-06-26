@@ -1,17 +1,27 @@
 // src/modules/interviews/interviews.service.js
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import prisma from "../../config/db.js";
 
 // ── Mailer setup ───────────────────────────────────────────────────────────
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getTransporter() {
+  return nodemailer.createTransport({
+    host:   process.env.SMTP_HOST   || "smtp-relay.brevo.com",
+    port:   Number(process.env.SMTP_PORT)  || 587,
+    secure: false, // Brevo port 587 pe always false
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
 
 /**
  * Send interview invite to the candidate.
  * Fails gracefully — a mail error never breaks the interview creation.
  */
 async function sendInterviewInvite({ candidateEmail, candidateName, interview, recruiterName }) {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[Mailer] RESEND_API_KEY not set — skipping email.");
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn("[Mailer] SMTP_USER / SMTP_PASS not set — skipping email.");
     return;
   }
 
@@ -65,28 +75,24 @@ async function sendInterviewInvite({ candidateEmail, candidateName, interview, r
   `;
 
   try {
-    await resend.emails.send({
-      from: "HireOS <onboarding@resend.dev>",
-      to: `${candidateName} <${candidateEmail}>`,
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from:    `"HireOS Recruitment" <${process.env.SMTP_USER}>`,
+      to:      `"${candidateName}" <${candidateEmail}>`,
       subject: `Interview Invitation: ${interview.title}`,
       html,
     });
     console.log(`[Mailer] Interview invite sent to ${candidateEmail}`);
   } catch (err) {
-    // Non-fatal — log and continue
     console.error("[Mailer] Failed to send interview invite:", err.message);
   }
 }
 
 // ── CRUD ───────────────────────────────────────────────────────────────────
 
-/**
- * Schedule a new interview and notify the candidate via email.
- */
 export async function scheduleInterview(data, recruiterId) {
   const { candidateId, title, date, duration, type, notes, meetingUrl } = data;
 
-  // Validate candidate exists and belongs to this recruiter's company
   const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
     include: {
@@ -97,7 +103,6 @@ export async function scheduleInterview(data, recruiterId) {
   });
   if (!candidate) throw { status: 404, message: "Candidate not found" };
 
-  // Data-isolation check: only enforce if candidate has a job linked AND companies mismatch
   const recruiter = await prisma.user.findUnique({
     where: { id: recruiterId },
     select: { name: true, email: true, company: true },
@@ -106,8 +111,8 @@ export async function scheduleInterview(data, recruiterId) {
   const jobOwnerCompany = candidate.job?.owner?.company;
   if (
     recruiter.company &&
-    jobOwnerCompany &&                           // candidate has a job with an owner
-    recruiter.company !== jobOwnerCompany        // and companies don't match
+    jobOwnerCompany &&
+    recruiter.company !== jobOwnerCompany
   ) {
     throw { status: 403, message: "You can only schedule interviews for candidates in your company." };
   }
@@ -130,13 +135,11 @@ export async function scheduleInterview(data, recruiterId) {
     },
   });
 
-  // Update candidate stage to INTERVIEW
   await prisma.candidate.update({
     where: { id: candidateId },
     data:  { stage: "INTERVIEW" },
   });
 
-  // Send email (non-blocking)
   sendInterviewInvite({
     candidateEmail: interview.candidate.email,
     candidateName:  interview.candidate.name,
@@ -147,16 +150,12 @@ export async function scheduleInterview(data, recruiterId) {
   return interview;
 }
 
-/**
- * List interviews scoped to the recruiter's company.
- */
 export async function listInterviews({ recruiterId, candidateId, status } = {}) {
   const recruiter = await prisma.user.findUnique({
     where:  { id: recruiterId },
     select: { company: true, role: true },
   });
 
-  // ADMIN sees everything; others are scoped to their company
   const companyFilter =
     recruiter.role !== "ADMIN" && recruiter.company
       ? { recruiter: { company: recruiter.company } }
@@ -176,9 +175,6 @@ export async function listInterviews({ recruiterId, candidateId, status } = {}) 
   });
 }
 
-/**
- * Get a single interview (with company guard).
- */
 export async function getInterview(id, recruiterId) {
   const interview = await prisma.interview.findUnique({
     where: { id },
@@ -189,7 +185,6 @@ export async function getInterview(id, recruiterId) {
   });
   if (!interview) throw { status: 404, message: "Interview not found" };
 
-  // Isolation guard
   const requester = await prisma.user.findUnique({
     where:  { id: recruiterId },
     select: { company: true, role: true },
@@ -206,10 +201,6 @@ export async function getInterview(id, recruiterId) {
   return interview;
 }
 
-/**
- * Update interview (status, notes, reschedule).
- * Sends a reschedule email if date changed.
- */
 export async function updateInterview(id, data, recruiterId) {
   const existing = await prisma.interview.findUnique({
     where: { id },
@@ -249,7 +240,6 @@ export async function updateInterview(id, data, recruiterId) {
     },
   });
 
-  // Re-send invite if rescheduled
   if (dateChanged) {
     sendInterviewInvite({
       candidateEmail: updated.candidate.email,
@@ -262,9 +252,6 @@ export async function updateInterview(id, data, recruiterId) {
   return updated;
 }
 
-/**
- * Cancel / delete an interview.
- */
 export async function deleteInterview(id, recruiterId) {
   const existing = await prisma.interview.findUnique({
     where: { id },
